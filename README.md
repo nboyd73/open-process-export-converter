@@ -81,3 +81,11 @@ For questions relating to Open Process itself or the structure and content of an
 **Disclaimer**
 
 This utility should be used as an aid when reviewing or transforming Open Process export data. Users remain responsible for validating converted output before relying on it for configuration, migration or other production activities.
+
+## Download
+
+Prefer to run the converter locally?
+
+[**Download the Open Process Export Converter**](./open-process-export-converter.zip)
+
+Extract the ZIP file and open `index.html` in Microsoft Edge, Google Chrome or Firefox. No installation is required.
