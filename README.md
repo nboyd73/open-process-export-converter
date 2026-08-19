@@ -1,5 +1,6 @@
-# open-process-export-converter
-A browser-based utility for converting IEG4 Open Process export files into a more accessible and usable format.
+**Open Process Export Converter**
+
+A browser-based utility for converting **IEG4 Open Process export files** into a more accessible and usable format.
 
 The converter is provided as a single HTML file and can be used online through GitHub Pages or downloaded and run locally.
 
