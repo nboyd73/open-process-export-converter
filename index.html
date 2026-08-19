@@ -1,0 +1,1074 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Open Process Export Converter</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f4f7fb;
+      --surface: #ffffff;
+      --surface-2: #eef3f8;
+      --text: #142033;
+      --muted: #5c697b;
+      --border: #ccd7e4;
+      --brand: #005a78;
+      --brand-strong: #00445b;
+      --brand-soft: #dceff5;
+      --success: #17643a;
+      --success-bg: #e3f5e9;
+      --warning: #744b00;
+      --warning-bg: #fff2ce;
+      --danger: #9b2633;
+      --danger-bg: #fde8eb;
+      --shadow: 0 12px 30px rgba(32, 55, 83, 0.09);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0f1721;
+        --surface: #172230;
+        --surface-2: #202e3d;
+        --text: #edf4fb;
+        --muted: #b7c5d5;
+        --border: #3b4b5e;
+        --brand: #49b9d7;
+        --brand-strong: #78cce2;
+        --brand-soft: #183d4a;
+        --success: #8ee0ae;
+        --success-bg: #193c2a;
+        --warning: #f5cd6d;
+        --warning-bg: #463917;
+        --danger: #ffabb3;
+        --danger-bg: #4a2228;
+        --shadow: 0 12px 30px rgba(0, 0, 0, 0.24);
+      }
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.5;
+    }
+
+    button, input { font: inherit; }
+
+    .page {
+      width: min(1180px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 40px 0 56px;
+    }
+
+    .hero {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 24px;
+      margin-bottom: 24px;
+    }
+
+    .hero h1 {
+      margin: 0 0 8px;
+      font-size: clamp(1.75rem, 4vw, 2.65rem);
+      line-height: 1.1;
+      letter-spacing: -0.035em;
+    }
+
+    .hero p {
+      max-width: 760px;
+      margin: 0;
+      color: var(--muted);
+      font-size: 1.05rem;
+    }
+
+    .privacy {
+      flex: 0 0 auto;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: var(--brand-soft);
+      color: var(--brand-strong);
+      font-size: 0.85rem;
+      font-weight: 650;
+    }
+
+    .panel {
+      margin-bottom: 20px;
+      padding: 24px;
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+
+    .drop-zone {
+      display: grid;
+      place-items: center;
+      min-height: 205px;
+      padding: 28px;
+      border: 2px dashed var(--border);
+      border-radius: 14px;
+      background: var(--surface-2);
+      text-align: center;
+      transition: border-color 150ms ease, background 150ms ease;
+    }
+
+    .drop-zone.is-dragging {
+      border-color: var(--brand);
+      background: var(--brand-soft);
+    }
+
+    .drop-zone strong {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 1.08rem;
+    }
+
+    .drop-zone p {
+      margin: 0 0 18px;
+      color: var(--muted);
+    }
+
+    .file-input { position: absolute; inline-size: 1px; block-size: 1px; opacity: 0; overflow: hidden; }
+
+    .button-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .button {
+      min-height: 42px;
+      padding: 9px 16px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--surface);
+      color: var(--text);
+      cursor: pointer;
+      font-weight: 650;
+      text-decoration: none;
+    }
+
+    .button:hover:not(:disabled) { border-color: var(--brand); }
+    .button:focus-visible, input:focus-visible, summary:focus-visible { outline: 3px solid color-mix(in srgb, var(--brand) 45%, transparent); outline-offset: 2px; }
+    .button.primary { border-color: var(--brand); background: var(--brand); color: #fff; }
+    .button.primary:hover:not(:disabled) { background: var(--brand-strong); }
+    .button:disabled { opacity: 0.48; cursor: not-allowed; }
+
+    .file-meta {
+      display: none;
+      margin-top: 16px;
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+
+    .file-meta.is-visible { display: block; }
+
+    .status {
+      display: none;
+      margin-bottom: 20px;
+      padding: 13px 16px;
+      border-radius: 12px;
+      font-weight: 600;
+    }
+
+    .status.is-visible { display: block; }
+    .status.info { background: var(--brand-soft); color: var(--brand-strong); }
+    .status.success { background: var(--success-bg); color: var(--success); }
+    .status.warning { background: var(--warning-bg); color: var(--warning); }
+    .status.error { background: var(--danger-bg); color: var(--danger); }
+
+    .results { display: none; }
+    .results.is-visible { display: block; }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px;
+      margin-bottom: 20px;
+    }
+
+    .metric {
+      padding: 18px;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: var(--surface);
+    }
+
+    .metric span { display: block; color: var(--muted); font-size: 0.85rem; }
+    .metric strong { display: block; margin-top: 3px; font-size: 1.7rem; line-height: 1.15; }
+
+    .section-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 18px;
+      margin-bottom: 14px;
+    }
+
+    .section-head h2 { margin: 0; font-size: 1.18rem; }
+    .section-head p { margin: 4px 0 0; color: var(--muted); font-size: 0.92rem; }
+
+    .option-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px 20px;
+      margin-bottom: 18px;
+    }
+
+    .check {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+    }
+
+    .check input { margin-top: 4px; accent-color: var(--brand); }
+    .check label { cursor: pointer; }
+    .check small { display: block; color: var(--muted); }
+
+    details {
+      margin-top: 18px;
+      padding-top: 16px;
+      border-top: 1px solid var(--border);
+    }
+
+    summary { cursor: pointer; font-weight: 650; }
+    .catalogue-row { margin-top: 14px; }
+    .catalogue-note { margin: 8px 0 0; color: var(--muted); font-size: 0.88rem; }
+
+    .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 12px; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+    th, td { padding: 10px 12px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
+    th { background: var(--surface-2); font-weight: 650; white-space: nowrap; }
+    tr:last-child td { border-bottom: 0; }
+    td.number { text-align: right; font-variant-numeric: tabular-nums; }
+    td code { color: var(--brand-strong); }
+
+    .notice-list {
+      display: none;
+      margin: 0 0 20px;
+      padding: 0;
+      list-style: none;
+    }
+
+    .notice-list.is-visible { display: grid; gap: 8px; }
+    .notice-list li { padding: 11px 14px; border-radius: 10px; background: var(--warning-bg); color: var(--warning); }
+    .notice-list li.error { background: var(--danger-bg); color: var(--danger); }
+
+    .tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+    .tab[aria-selected="true"] { border-color: var(--brand); background: var(--brand-soft); color: var(--brand-strong); }
+    .tab-panel[hidden] { display: none; }
+
+    .empty { padding: 24px; color: var(--muted); text-align: center; }
+
+    footer { margin-top: 26px; color: var(--muted); text-align: center; font-size: 0.85rem; }
+
+    @media (max-width: 760px) {
+      .page { width: min(100% - 20px, 1180px); padding-top: 24px; }
+      .hero { display: block; }
+      .privacy { display: inline-block; margin-top: 14px; }
+      .panel { padding: 18px; border-radius: 14px; }
+      .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .option-grid { grid-template-columns: 1fr; }
+      .section-head { display: block; }
+      .section-head .button-row { margin-top: 12px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="hero">
+      <div>
+        <h1>Open Process Export Converter</h1>
+        <p>Turn a pipe-delimited Open Process export into a flat CSV with one row per process, including fields created by dynamic pages and workflow branches.</p>
+      </div>
+      <div class="privacy">Runs locally in your browser</div>
+    </header>
+
+    <section class="panel" aria-labelledby="select-heading">
+      <div id="dropZone" class="drop-zone">
+        <div>
+          <strong id="select-heading">Select an Open Process export</strong>
+          <p>Choose the exported <code>.txt</code> file or drag it here.</p>
+          <label class="button primary" for="exportFile">Choose export file</label>
+          <input id="exportFile" class="file-input" type="file" accept=".txt,.csv,text/plain">
+          <div id="fileMeta" class="file-meta"></div>
+        </div>
+      </div>
+    </section>
+
+    <div id="status" class="status" role="status" aria-live="polite"></div>
+
+    <section id="results" class="results" aria-label="Conversion results">
+      <div class="metrics" aria-label="Export summary">
+        <div class="metric"><span>Process rows</span><strong id="rowMetric">0</strong></div>
+        <div class="metric"><span>Dynamic fields</span><strong id="fieldMetric">0</strong></div>
+        <div class="metric"><span>Field sets / branches</span><strong id="branchMetric">0</strong></div>
+        <div class="metric"><span>Conversion errors</span><strong id="errorMetric">0</strong></div>
+      </div>
+
+      <ul id="noticeList" class="notice-list" aria-label="Conversion notices"></ul>
+
+      <section class="panel" aria-labelledby="download-heading">
+        <div class="section-head">
+          <div>
+            <h2 id="download-heading">Create the flattened CSV</h2>
+            <p>Field presence is retained so an absent branch field can be distinguished from an empty value.</p>
+          </div>
+          <div class="button-row">
+            <button id="downloadCsv" class="button primary" type="button">Download flattened CSV</button>
+            <button id="reset" class="button" type="button">Start again</button>
+          </div>
+        </div>
+
+        <div class="option-grid">
+          <div class="check">
+            <input id="standardiseDates" type="checkbox" checked>
+            <label for="standardiseDates">Standardise safely identified dates<small>Fixed process dates and unambiguous dynamic date fields become ISO format.</small></label>
+          </div>
+          <div class="check">
+            <input id="includeRawJson" type="checkbox">
+            <label for="includeRawJson">Include original JSON for audit<small>Adds the unmodified KeyFieldsJson and NotesJson columns.</small></label>
+          </div>
+        </div>
+
+        <details>
+          <summary>Field catalogue for consistent columns between exports</summary>
+          <div class="catalogue-row button-row">
+            <label class="button" for="catalogueFile">Load existing catalogue</label>
+            <input id="catalogueFile" class="file-input" type="file" accept=".json,application/json">
+            <button id="downloadCatalogue" class="button" type="button">Download updated catalogue</button>
+            <span id="catalogueName" class="catalogue-note"></span>
+          </div>
+          <p class="catalogue-note">A catalogue remembers fields from rare branches even when they do not occur in the current export. Keep one catalogue per process definition.</p>
+        </details>
+      </section>
+
+      <section class="panel" aria-labelledby="inspect-heading">
+        <div class="section-head">
+          <div>
+            <h2 id="inspect-heading">Inspect before downloading</h2>
+            <p>Review the detected field catalogue, branch shapes and a small output preview.</p>
+          </div>
+        </div>
+        <div class="tabs" role="tablist" aria-label="Inspection views">
+          <button class="button tab" id="fieldsTab" role="tab" aria-selected="true" aria-controls="fieldsPanel" type="button">Detected fields</button>
+          <button class="button tab" id="branchesTab" role="tab" aria-selected="false" aria-controls="branchesPanel" type="button">Field sets</button>
+          <button class="button tab" id="previewTab" role="tab" aria-selected="false" aria-controls="previewPanel" type="button">CSV preview</button>
+        </div>
+
+        <div id="fieldsPanel" class="tab-panel" role="tabpanel" aria-labelledby="fieldsTab">
+          <div id="fieldsTable" class="table-wrap"></div>
+        </div>
+        <div id="branchesPanel" class="tab-panel" role="tabpanel" aria-labelledby="branchesTab" hidden>
+          <div id="branchesTable" class="table-wrap"></div>
+        </div>
+        <div id="previewPanel" class="tab-panel" role="tabpanel" aria-labelledby="previewTab" hidden>
+          <div id="previewTable" class="table-wrap"></div>
+        </div>
+      </section>
+    </section>
+
+    <footer>No data is uploaded. Closing this page clears the selected export.</footer>
+  </main>
+
+  <script>
+    (() => {
+      'use strict';
+
+      const FIXED_OUTPUT_HEADERS = [
+        'ProcessName',
+        'ProcessStartedOn',
+        'CurrentStep',
+        'CurrentStepAllocatedTo',
+        'Category',
+        'ProcessCompletedOn',
+        'ProcessCompletedBy'
+      ];
+
+      const state = {
+        sourceFile: null,
+        parsed: null,
+        catalogue: null,
+        model: null
+      };
+
+      const ui = {
+        exportFile: document.getElementById('exportFile'),
+        catalogueFile: document.getElementById('catalogueFile'),
+        dropZone: document.getElementById('dropZone'),
+        fileMeta: document.getElementById('fileMeta'),
+        status: document.getElementById('status'),
+        results: document.getElementById('results'),
+        noticeList: document.getElementById('noticeList'),
+        rowMetric: document.getElementById('rowMetric'),
+        fieldMetric: document.getElementById('fieldMetric'),
+        branchMetric: document.getElementById('branchMetric'),
+        errorMetric: document.getElementById('errorMetric'),
+        fieldsTable: document.getElementById('fieldsTable'),
+        branchesTable: document.getElementById('branchesTable'),
+        previewTable: document.getElementById('previewTable'),
+        downloadCsv: document.getElementById('downloadCsv'),
+        downloadCatalogue: document.getElementById('downloadCatalogue'),
+        catalogueName: document.getElementById('catalogueName'),
+        standardiseDates: document.getElementById('standardiseDates'),
+        includeRawJson: document.getElementById('includeRawJson'),
+        reset: document.getElementById('reset')
+      };
+
+      ui.exportFile.addEventListener('change', () => {
+        const file = ui.exportFile.files && ui.exportFile.files[0];
+        if (file) loadExport(file);
+      });
+
+      ui.catalogueFile.addEventListener('change', async () => {
+        const file = ui.catalogueFile.files && ui.catalogueFile.files[0];
+        if (!file) return;
+        await loadCatalogue(file);
+      });
+
+      ['dragenter', 'dragover'].forEach(eventName => {
+        ui.dropZone.addEventListener(eventName, event => {
+          event.preventDefault();
+          ui.dropZone.classList.add('is-dragging');
+        });
+      });
+
+      ['dragleave', 'drop'].forEach(eventName => {
+        ui.dropZone.addEventListener(eventName, event => {
+          event.preventDefault();
+          ui.dropZone.classList.remove('is-dragging');
+        });
+      });
+
+      ui.dropZone.addEventListener('drop', event => {
+        const file = event.dataTransfer.files && event.dataTransfer.files[0];
+        if (file) loadExport(file);
+      });
+
+      ui.downloadCsv.addEventListener('click', downloadCsv);
+      ui.downloadCatalogue.addEventListener('click', downloadCatalogue);
+      ui.reset.addEventListener('click', resetAll);
+      ui.standardiseDates.addEventListener('change', renderPreview);
+      ui.includeRawJson.addEventListener('change', renderPreview);
+
+      document.querySelectorAll('[role="tab"]').forEach(tab => {
+        tab.addEventListener('click', () => selectTab(tab));
+      });
+
+      async function loadExport(file) {
+        state.sourceFile = file;
+        state.parsed = null;
+        state.model = null;
+        ui.fileMeta.textContent = `${file.name} · ${formatBytes(file.size)}`;
+        ui.fileMeta.classList.add('is-visible');
+        ui.results.classList.remove('is-visible');
+        showStatus('Reading and checking the export…', 'info');
+        ui.downloadCsv.disabled = true;
+
+        try {
+          const text = await readTextFile(file);
+          state.parsed = parseExport(text, file.name);
+          rebuildModel();
+        } catch (error) {
+          showStatus(error instanceof Error ? error.message : String(error), 'error');
+          ui.results.classList.remove('is-visible');
+        }
+      }
+
+      async function loadCatalogue(file) {
+        showStatus('Reading the field catalogue…', 'info');
+        try {
+          const text = await readTextFile(file);
+          const catalogue = JSON.parse(text);
+          if (!catalogue || !Array.isArray(catalogue.fields)) {
+            throw new Error('That file is not a valid Open Process field catalogue.');
+          }
+          const invalidField = catalogue.fields.find(field => !field || typeof field.code !== 'string');
+          if (invalidField) throw new Error('The catalogue contains a field without a valid code.');
+          state.catalogue = catalogue;
+          ui.catalogueName.textContent = `Loaded: ${file.name}`;
+          if (state.parsed) rebuildModel();
+          else showStatus('Field catalogue loaded. Now choose an Open Process export.', 'success');
+        } catch (error) {
+          state.catalogue = null;
+          ui.catalogueName.textContent = '';
+          showStatus(error instanceof Error ? error.message : String(error), 'error');
+        }
+      }
+
+      function rebuildModel() {
+        if (!state.parsed) return;
+        state.model = buildModel(state.parsed, state.catalogue);
+        renderResults();
+      }
+
+      async function readTextFile(file) {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        let encoding = 'utf-8';
+        if (bytes.length >= 2 && bytes[0] === 0xff && bytes[1] === 0xfe) encoding = 'utf-16le';
+        else if (bytes.length >= 2 && bytes[0] === 0xfe && bytes[1] === 0xff) encoding = 'utf-16be';
+        else {
+          try {
+            return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+          } catch {
+            encoding = 'windows-1252';
+          }
+        }
+        return new TextDecoder(encoding).decode(bytes);
+      }
+
+      function parseExport(text, fileName) {
+        const cleanText = text.replace(/^\uFEFF/, '');
+        const lines = cleanText.split(/\r\n|\n|\r/);
+        while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
+        if (lines.length < 2) throw new Error('The selected file does not contain a header and process rows.');
+
+        const header = lines[0].split('|');
+        if (header[header.length - 1] === '') header.pop();
+        if (header.length < 9) {
+          throw new Error('The file does not have the expected Open Process pipe-delimited structure.');
+        }
+
+        const records = [];
+        const errors = [];
+        let blankLines = 0;
+
+        for (let index = 1; index < lines.length; index += 1) {
+          const line = lines[index];
+          if (!line.trim()) {
+            blankLines += 1;
+            continue;
+          }
+          try {
+            records.push(parseDataLine(line, index + 1, fileName));
+          } catch (error) {
+            errors.push({ line: index + 1, message: error instanceof Error ? error.message : String(error) });
+          }
+        }
+
+        if (!records.length) {
+          const detail = errors[0] ? ` First error: line ${errors[0].line}, ${errors[0].message}` : '';
+          throw new Error(`No process rows could be read.${detail}`);
+        }
+
+        return { header, records, errors, blankLines, fileName };
+      }
+
+      function parseDataLine(line, sourceLine, fileName) {
+        const fixed = [];
+        let cursor = 0;
+
+        for (let fieldIndex = 0; fieldIndex < 7; fieldIndex += 1) {
+          const separator = line.indexOf('|', cursor);
+          if (separator < 0) throw new Error('Fewer than seven fixed process columns were found.');
+          fixed.push(line.slice(cursor, separator).trim());
+          cursor = separator + 1;
+        }
+
+        const keySegment = readJsonSegment(line, cursor, 'Key fields');
+        cursor = keySegment.end;
+        cursor = skipSpaces(line, cursor);
+        if (line[cursor] !== '|') throw new Error('The separator after Key fields is missing.');
+
+        const notesSegment = readJsonSegment(line, cursor + 1, 'Notes');
+        cursor = skipSpaces(line, notesSegment.end);
+        const remainder = line.slice(cursor).trim();
+        if (remainder !== '' && remainder !== '|') throw new Error('Unexpected data was found after Notes.');
+
+        let keyItems;
+        let notes;
+        try { keyItems = JSON.parse(keySegment.raw); }
+        catch { throw new Error('Key fields contains invalid JSON.'); }
+        try { notes = JSON.parse(notesSegment.raw); }
+        catch { throw new Error('Notes contains invalid JSON.'); }
+        if (!Array.isArray(keyItems)) throw new Error('Key fields is not a JSON array.');
+        if (!Array.isArray(notes)) throw new Error('Notes is not a JSON array.');
+
+        return {
+          fileName,
+          sourceLine,
+          fixed,
+          keyItems,
+          notes,
+          keyRaw: keySegment.raw,
+          notesRaw: notesSegment.raw
+        };
+      }
+
+      function readJsonSegment(text, start, label) {
+        let index = skipSpaces(text, start);
+        const first = text[index];
+        if (first !== '[' && first !== '{') throw new Error(`${label} does not begin with JSON.`);
+        const stack = [];
+        let inString = false;
+        let escaped = false;
+        const segmentStart = index;
+
+        for (; index < text.length; index += 1) {
+          const char = text[index];
+          if (inString) {
+            if (escaped) escaped = false;
+            else if (char === '\\') escaped = true;
+            else if (char === '"') inString = false;
+            continue;
+          }
+          if (char === '"') { inString = true; continue; }
+          if (char === '[' || char === '{') stack.push(char);
+          else if (char === ']' || char === '}') {
+            const expected = char === ']' ? '[' : '{';
+            if (stack.pop() !== expected) throw new Error(`${label} has mismatched JSON brackets.`);
+            if (!stack.length) return { raw: text.slice(segmentStart, index + 1), end: index + 1 };
+          }
+        }
+        throw new Error(`${label} JSON is incomplete.`);
+      }
+
+      function skipSpaces(text, index) {
+        while (index < text.length && /\s/.test(text[index])) index += 1;
+        return index;
+      }
+
+      function buildModel(parsed, catalogue) {
+        const warnings = [];
+        const fieldMap = new Map();
+        const knownFields = catalogue && Array.isArray(catalogue.fields) ? catalogue.fields : [];
+
+        knownFields.forEach((field, index) => {
+          if (!fieldMap.has(field.code)) {
+            fieldMap.set(field.code, createFieldStat(field.code, field.name || field.code, index, true));
+          }
+        });
+
+        const processNames = new Set();
+        let duplicateCodeRows = 0;
+        let missingCodeItems = 0;
+
+        parsed.records.forEach(record => {
+          processNames.add(record.fixed[0]);
+          record.values = new Map();
+          record.presentCodes = new Set();
+          const duplicateValues = new Map();
+
+          record.keyItems.forEach(item => {
+            const codeValue = item && (item.Code ?? item.code);
+            if (codeValue === null || codeValue === undefined || String(codeValue).trim() === '') {
+              missingCodeItems += 1;
+              return;
+            }
+            const code = String(codeValue).trim();
+            const nameValue = item.Name ?? item.name;
+            const name = nameValue === null || nameValue === undefined || String(nameValue).trim() === '' ? code : String(nameValue).trim();
+            const value = item.Value !== undefined ? item.Value : item.value;
+
+            if (!fieldMap.has(code)) fieldMap.set(code, createFieldStat(code, name, fieldMap.size, false));
+            const field = fieldMap.get(code);
+            if (!field.name || field.name === field.code) field.name = name;
+
+            if (record.presentCodes.has(code)) {
+              if (!duplicateValues.has(code)) duplicateValues.set(code, [record.values.get(code)]);
+              duplicateValues.get(code).push(value);
+            } else {
+              record.presentCodes.add(code);
+              record.values.set(code, value);
+            }
+          });
+
+          if (duplicateValues.size) {
+            duplicateCodeRows += 1;
+            duplicateValues.forEach((values, code) => record.values.set(code, values));
+          }
+
+          record.presentCodes.forEach(code => {
+            const field = fieldMap.get(code);
+            const value = record.values.get(code);
+            field.rowsPresent += 1;
+            if (value === null || value === undefined) field.nulls += 1;
+            else if (value === '') field.emptyStrings += 1;
+            else field.sampleValues.push(value);
+            const type = value === null || value === undefined ? 'null' : Array.isArray(value) ? 'array' : typeof value === 'object' ? 'object' : typeof value;
+            field.types.set(type, (field.types.get(type) || 0) + 1);
+          });
+        });
+
+        const fields = Array.from(fieldMap.values()).sort((a, b) => a.order - b.order || a.code.localeCompare(b.code));
+        assignColumnNames(fields);
+        fields.forEach(field => { field.dateFormat = inferDateFormat(field); });
+
+        const processNameList = Array.from(processNames).filter(Boolean);
+        if (processNameList.length > 1) warnings.push(`The export contains ${processNameList.length} process names. A separate export per process definition is recommended.`);
+        if (catalogue && Array.isArray(catalogue.processNames) && catalogue.processNames.length && processNameList.length) {
+          const mismatch = processNameList.some(name => !catalogue.processNames.includes(name));
+          if (mismatch) warnings.push('The loaded field catalogue appears to belong to a different process definition. Check the generated columns before downloading.');
+        }
+        if (duplicateCodeRows) warnings.push(`${duplicateCodeRows.toLocaleString('en-GB')} process row(s) contain a repeated field code. Repeated values will be retained as a JSON array in one cell.`);
+        if (missingCodeItems) warnings.push(`${missingCodeItems.toLocaleString('en-GB')} Key fields item(s) had no Code and could not become a CSV column.`);
+        const ambiguousDateFields = fields.filter(field => field.dateFormat === 'ambiguous');
+        if (ambiguousDateFields.length) warnings.push(`${ambiguousDateFields.length} date-like field(s) are ambiguous and will remain exactly as exported.`);
+        if (parsed.blankLines) warnings.push(`${parsed.blankLines.toLocaleString('en-GB')} blank line(s) were ignored.`);
+
+        const fieldSets = new Map();
+        parsed.records.forEach(record => {
+          const codes = Array.from(record.presentCodes).sort((a, b) => a.localeCompare(b));
+          const signature = codes.join('\u001f');
+          const id = `FS_${fnv1a(signature)}`;
+          record.fieldSet = id;
+          record.fieldsPresent = codes.join(';');
+          if (!fieldSets.has(id)) fieldSets.set(id, { id, codes, rows: 0 });
+          fieldSets.get(id).rows += 1;
+        });
+
+        return {
+          ...parsed,
+          processNames: processNameList,
+          fields,
+          fieldSets: Array.from(fieldSets.values()).sort((a, b) => b.rows - a.rows || a.id.localeCompare(b.id)),
+          warnings,
+          duplicateCodeRows,
+          missingCodeItems
+        };
+      }
+
+      function createFieldStat(code, name, order, fromCatalogue) {
+        return {
+          code,
+          name,
+          order,
+          fromCatalogue,
+          rowsPresent: 0,
+          nulls: 0,
+          emptyStrings: 0,
+          types: new Map(),
+          sampleValues: [],
+          columnName: '',
+          dateFormat: null
+        };
+      }
+
+      function assignColumnNames(fields) {
+        const used = new Set();
+        fields.forEach(field => {
+          let safeCode = field.code.replace(/[^A-Za-z0-9_]+/g, '_').replace(/^_+|_+$/g, '');
+          if (!safeCode) safeCode = 'Field';
+          let columnName = `KF_${safeCode}`;
+          if (used.has(columnName.toLowerCase())) columnName += `_${fnv1a(field.code).slice(0, 5)}`;
+          used.add(columnName.toLowerCase());
+          field.columnName = columnName;
+        });
+      }
+
+      function inferDateFormat(field) {
+        if (!/date|time/i.test(`${field.code} ${field.name}`)) return null;
+        const candidates = field.sampleValues
+          .filter(value => typeof value === 'string')
+          .map(value => value.match(/^\s*(\d{1,2})\/(\d{1,2})\/(\d{4})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?\s*$/))
+          .filter(Boolean);
+        if (!candidates.length) return null;
+        const firstOverTwelve = candidates.some(match => Number(match[1]) > 12);
+        const secondOverTwelve = candidates.some(match => Number(match[2]) > 12);
+        if (firstOverTwelve && secondOverTwelve) return 'conflict';
+        if (firstOverTwelve) return 'dmy';
+        if (secondOverTwelve) return 'mdy';
+        return 'ambiguous';
+      }
+
+      function renderResults() {
+        const model = state.model;
+        if (!model) return;
+        ui.rowMetric.textContent = model.records.length.toLocaleString('en-GB');
+        ui.fieldMetric.textContent = model.fields.length.toLocaleString('en-GB');
+        ui.branchMetric.textContent = model.fieldSets.length.toLocaleString('en-GB');
+        ui.errorMetric.textContent = model.errors.length.toLocaleString('en-GB');
+
+        renderNotices();
+        renderFields();
+        renderBranches();
+        renderPreview();
+
+        const hasErrors = model.errors.length > 0;
+        ui.downloadCsv.disabled = hasErrors;
+        ui.downloadCatalogue.disabled = hasErrors;
+        ui.results.classList.add('is-visible');
+
+        if (hasErrors) {
+          showStatus(`${model.records.length.toLocaleString('en-GB')} rows were read, but ${model.errors.length.toLocaleString('en-GB')} row(s) contain errors. The download is disabled to prevent silent data loss.`, 'error');
+        } else if (model.warnings.length) {
+          showStatus(`${model.records.length.toLocaleString('en-GB')} process rows are ready. Review the notices, then download the flattened CSV.`, 'warning');
+        } else {
+          showStatus(`${model.records.length.toLocaleString('en-GB')} process rows are ready to download.`, 'success');
+        }
+      }
+
+      function renderNotices() {
+        const model = state.model;
+        const notices = [
+          ...model.errors.slice(0, 8).map(error => ({ type: 'error', text: `Line ${error.line}: ${error.message}` })),
+          ...model.warnings.map(text => ({ type: 'warning', text }))
+        ];
+        if (model.errors.length > 8) notices.push({ type: 'error', text: `${model.errors.length - 8} additional row error(s) are not shown.` });
+        ui.noticeList.innerHTML = notices.map(notice => `<li class="${notice.type === 'error' ? 'error' : ''}">${escapeHtml(notice.text)}</li>`).join('');
+        ui.noticeList.classList.toggle('is-visible', notices.length > 0);
+      }
+
+      function renderFields() {
+        const model = state.model;
+        if (!model.fields.length) {
+          ui.fieldsTable.innerHTML = '<div class="empty">No dynamic fields were detected.</div>';
+          return;
+        }
+        const rows = model.fields.map(field => {
+          const typeText = field.types.size ? Array.from(field.types.keys()).join(', ') : 'catalogue only';
+          const dateText = field.dateFormat === 'mdy' ? 'US date → ISO' : field.dateFormat === 'dmy' ? 'UK date → ISO' : field.dateFormat === 'ambiguous' ? 'ambiguous date' : field.dateFormat === 'conflict' ? 'conflicting date' : '';
+          return `<tr>
+            <td><code>${escapeHtml(field.code)}</code></td>
+            <td>${escapeHtml(field.name)}</td>
+            <td><code>${escapeHtml(field.columnName)}</code></td>
+            <td class="number">${field.rowsPresent.toLocaleString('en-GB')}</td>
+            <td class="number">${field.nulls.toLocaleString('en-GB')}</td>
+            <td>${escapeHtml([typeText, dateText].filter(Boolean).join(' · '))}</td>
+          </tr>`;
+        }).join('');
+        ui.fieldsTable.innerHTML = `<table>
+          <thead><tr><th>Field code</th><th>Name</th><th>CSV column</th><th>Rows present</th><th>Null values</th><th>Detected type</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>`;
+      }
+
+      function renderBranches() {
+        const model = state.model;
+        if (!model.fieldSets.length) {
+          ui.branchesTable.innerHTML = '<div class="empty">No field sets were detected.</div>';
+          return;
+        }
+        const rows = model.fieldSets.map(set => `<tr>
+          <td><code>${escapeHtml(set.id)}</code></td>
+          <td class="number">${set.rows.toLocaleString('en-GB')}</td>
+          <td class="number">${set.codes.length.toLocaleString('en-GB')}</td>
+          <td>${escapeHtml(set.codes.join(', '))}</td>
+        </tr>`).join('');
+        ui.branchesTable.innerHTML = `<table>
+          <thead><tr><th>Field set</th><th>Process rows</th><th>Fields</th><th>Fields present</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>`;
+      }
+
+      function renderPreview() {
+        const model = state.model;
+        if (!model) return;
+        const output = createOutput(false);
+        const preferredHeaders = [
+          'ProcessRowId',
+          'ProcessStartedOn',
+          'ProcessCompletedOn',
+          'FieldSet',
+          ...model.fields.slice(0, 6).map(field => field.columnName),
+          'NotesCount'
+        ];
+        const previewIndexes = preferredHeaders
+          .map(header => output.headers.indexOf(header))
+          .filter(index => index >= 0);
+        const previewHeaders = previewIndexes.map(index => output.headers[index]);
+        const previewRows = output.rows.slice(0, 6);
+        const head = previewHeaders.map(header => `<th>${escapeHtml(header)}</th>`).join('');
+        const rows = previewRows.map(row => `<tr>${previewIndexes.map(index => `<td>${escapeHtml(displayValue(row[index]))}</td>`).join('')}</tr>`).join('');
+        ui.previewTable.innerHTML = `<table><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table>`;
+      }
+
+      function createOutput(includeAllRows = true) {
+        const model = state.model;
+        const rawJson = ui.includeRawJson.checked;
+        const isoDates = ui.standardiseDates.checked;
+        const headers = [
+          'ProcessRowId',
+          'SourceFile',
+          'SourceRowNumber',
+          ...FIXED_OUTPUT_HEADERS,
+          'FieldSet',
+          'FieldsPresent',
+          ...model.fields.map(field => field.columnName),
+          'NotesCount',
+          'NotesText'
+        ];
+        if (rawJson) headers.push('KeyFieldsJson', 'NotesJson');
+
+        const records = includeAllRows ? model.records : model.records.slice(0, 6);
+        const fileStem = stripExtension(model.fileName).replace(/[^A-Za-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '') || 'export';
+        const rows = records.map((record, index) => {
+          const fixed = record.fixed.slice();
+          if (isoDates) {
+            fixed[1] = normaliseSlashDate(fixed[1], 'dmy') || fixed[1];
+            fixed[5] = normaliseSlashDate(fixed[5], 'dmy') || fixed[5];
+          }
+          const row = [
+            `${fileStem}-${String(index + 1).padStart(6, '0')}`,
+            model.fileName,
+            record.sourceLine,
+            ...fixed,
+            record.fieldSet,
+            record.fieldsPresent
+          ];
+          model.fields.forEach(field => {
+            let value = record.values.has(field.code) ? record.values.get(field.code) : '';
+            if (isoDates && (field.dateFormat === 'mdy' || field.dateFormat === 'dmy') && typeof value === 'string') {
+              value = normaliseSlashDate(value, field.dateFormat) || value;
+            }
+            row.push(flattenValue(value));
+          });
+          row.push(record.notes.length, flattenNotes(record.notes));
+          if (rawJson) row.push(record.keyRaw, record.notesRaw);
+          return row;
+        });
+        return { headers, rows };
+      }
+
+      function normaliseSlashDate(value, format) {
+        const match = String(value).match(/^\s*(\d{1,2})\/(\d{1,2})\/(\d{4})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?\s*$/);
+        if (!match) return null;
+        const first = Number(match[1]);
+        const second = Number(match[2]);
+        const year = Number(match[3]);
+        const day = format === 'dmy' ? first : second;
+        const month = format === 'dmy' ? second : first;
+        const hour = Number(match[4] || 0);
+        const minute = Number(match[5] || 0);
+        const secondValue = Number(match[6] || 0);
+        if (month < 1 || month > 12 || day < 1 || day > 31 || hour > 23 || minute > 59 || secondValue > 59) return null;
+        const test = new Date(Date.UTC(year, month - 1, day, hour, minute, secondValue));
+        if (test.getUTCFullYear() !== year || test.getUTCMonth() !== month - 1 || test.getUTCDate() !== day) return null;
+        return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:${String(secondValue).padStart(2, '0')}`;
+      }
+
+      function flattenValue(value) {
+        if (value === null || value === undefined) return '';
+        if (typeof value === 'object') return JSON.stringify(value);
+        return String(value);
+      }
+
+      function flattenNotes(notes) {
+        return notes.map(note => {
+          if (note === null || note === undefined) return '';
+          if (typeof note !== 'object') return String(note);
+          const entries = Object.entries(note);
+          const preferred = entries.find(([key]) => /^(text|note|content|message|value|description)$/i.test(key));
+          return preferred && preferred[1] !== null && preferred[1] !== undefined ? String(preferred[1]) : JSON.stringify(note);
+        }).filter(Boolean).join('\n---\n');
+      }
+
+      function downloadCsv() {
+        if (!state.model || state.model.errors.length) return;
+        const output = createOutput(true);
+        const lines = [output.headers, ...output.rows].map(row => row.map(csvCell).join(','));
+        const blob = new Blob(['\uFEFF', lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+        downloadBlob(blob, `${stripExtension(state.model.fileName)}-flattened.csv`);
+        showStatus(`Flattened CSV created with ${state.model.records.length.toLocaleString('en-GB')} process rows.`, 'success');
+      }
+
+      function csvCell(value) {
+        let text = value === null || value === undefined ? '' : String(value);
+        if (/^[=+@]/.test(text) || (/^-/.test(text) && !/^-\d+(?:\.\d+)?$/.test(text))) text = `'${text}`;
+        return `"${text.replace(/"/g, '""')}"`;
+      }
+
+      function downloadCatalogue() {
+        const model = state.model;
+        if (!model || model.errors.length) return;
+        const catalogue = {
+          format: 'OpenProcessFieldCatalogue',
+          version: 1,
+          processNames: model.processNames,
+          generatedAt: new Date().toISOString(),
+          fields: model.fields.map((field, index) => ({
+            code: field.code,
+            name: field.name,
+            columnName: field.columnName,
+            order: index,
+            inferredDateFormat: field.dateFormat || null
+          }))
+        };
+        const blob = new Blob([JSON.stringify(catalogue, null, 2)], { type: 'application/json;charset=utf-8' });
+        downloadBlob(blob, `${stripExtension(model.fileName)}-field-catalogue.json`);
+        showStatus('Updated field catalogue downloaded.', 'success');
+      }
+
+      function downloadBlob(blob, fileName) {
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = fileName;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      }
+
+      function resetAll() {
+        state.sourceFile = null;
+        state.parsed = null;
+        state.model = null;
+        state.catalogue = null;
+        ui.exportFile.value = '';
+        ui.catalogueFile.value = '';
+        ui.catalogueName.textContent = '';
+        ui.fileMeta.textContent = '';
+        ui.fileMeta.classList.remove('is-visible');
+        ui.results.classList.remove('is-visible');
+        ui.status.className = 'status';
+        ui.status.textContent = '';
+        ui.noticeList.innerHTML = '';
+        ui.dropZone.classList.remove('is-dragging');
+      }
+
+      function selectTab(selectedTab) {
+        document.querySelectorAll('[role="tab"]').forEach(tab => {
+          const selected = tab === selectedTab;
+          tab.setAttribute('aria-selected', String(selected));
+          document.getElementById(tab.getAttribute('aria-controls')).hidden = !selected;
+        });
+      }
+
+      function showStatus(message, type) {
+        ui.status.textContent = message;
+        ui.status.className = `status is-visible ${type}`;
+      }
+
+      function fnv1a(text) {
+        let hash = 0x811c9dc5;
+        for (let index = 0; index < text.length; index += 1) {
+          hash ^= text.charCodeAt(index);
+          hash = Math.imul(hash, 0x01000193);
+        }
+        return (hash >>> 0).toString(16).padStart(8, '0').toUpperCase();
+      }
+
+      function displayValue(value) {
+        const text = value === null || value === undefined ? '' : String(value);
+        return text.length > 90 ? `${text.slice(0, 87)}…` : text;
+      }
+
+      function stripExtension(fileName) {
+        return fileName.replace(/\.[^.]+$/, '');
+      }
+
+      function formatBytes(bytes) {
+        if (bytes < 1024) return `${bytes} bytes`;
+        if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+        return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+      }
+
+      function escapeHtml(value) {
+        return String(value ?? '')
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#039;');
+      }
+    })();
+  </script>
+</body>
+</html>
