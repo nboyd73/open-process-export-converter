@@ -381,15 +381,41 @@
     (() => {
       'use strict';
 
-      const FIXED_OUTPUT_HEADERS = [
-        'ProcessName',
-        'ProcessStartedOn',
-        'CurrentStep',
-        'CurrentStepAllocatedTo',
-        'Category',
-        'ProcessCompletedOn',
-        'ProcessCompletedBy'
-      ];
+      const FIXED_HEADER_ALIASES = {
+        'process': 'ProcessName',
+        'process name': 'ProcessName',
+        'step': 'CurrentStep',
+        'current step': 'CurrentStep',
+        'account': 'Account',
+        'category': 'Category',
+        'reference': 'Reference',
+        'started on': 'CurrentStepStartedOn',
+        'current step started on': 'CurrentStepStartedOn',
+        'last activity': 'CurrentStepLastActivity',
+        'current step last activity': 'CurrentStepLastActivity',
+        'target date': 'CurrentStepTargetDate',
+        'current step target date': 'CurrentStepTargetDate',
+        'allocated to': 'CurrentStepAllocatedTo',
+        'current step allocated to': 'CurrentStepAllocatedTo',
+        'process start date': 'ProcessStartedOn',
+        'process started on': 'ProcessStartedOn',
+        'process end date': 'ProcessCompletedOn',
+        'process completed on': 'ProcessCompletedOn',
+        'process completed by': 'ProcessCompletedBy'
+      };
+
+      const FIXED_DATE_HEADERS = new Set([
+        'started on',
+        'current step started on',
+        'last activity',
+        'current step last activity',
+        'target date',
+        'current step target date',
+        'process start date',
+        'process started on',
+        'process end date',
+        'process completed on'
+      ]);
 
       const state = {
         sourceFile: null,
@@ -529,11 +555,23 @@
         while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
         if (lines.length < 2) throw new Error('The selected file does not contain a header and process rows.');
 
-        const header = lines[0].split('|');
-        if (header[header.length - 1] === '') header.pop();
-        if (header.length < 9) {
-          throw new Error('The file does not have the expected Open Process pipe-delimited structure.');
+        const header = lines[0].split('|').map(value => value.trim());
+        while (header.length && header[header.length - 1] === '') header.pop();
+        const keyFieldsIndex = header.findIndex(value => normaliseHeader(value) === 'key fields');
+        const notesIndex = header.findIndex(value => normaliseHeader(value) === 'notes');
+        if (keyFieldsIndex < 1 || notesIndex !== keyFieldsIndex + 1 || notesIndex !== header.length - 1) {
+          throw new Error('The file header must end with the Open Process Key fields and Notes columns.');
         }
+
+        const fixedHeaders = header.slice(0, keyFieldsIndex);
+        const fixedOutputHeaders = createFixedOutputHeaders(fixedHeaders);
+        const fixedDateIndexes = fixedHeaders
+          .map((value, index) => FIXED_DATE_HEADERS.has(normaliseHeader(value)) ? index : -1)
+          .filter(index => index >= 0);
+        const processNameIndex = fixedHeaders.findIndex(value => {
+          const normalised = normaliseHeader(value);
+          return normalised === 'process' || normalised === 'process name';
+        });
 
         const records = [];
         const errors = [];
@@ -546,7 +584,7 @@
             continue;
           }
           try {
-            records.push(parseDataLine(line, index + 1, fileName));
+            records.push(parseDataLine(line, index + 1, fileName, fixedHeaders.length));
           } catch (error) {
             errors.push({ line: index + 1, message: error instanceof Error ? error.message : String(error) });
           }
@@ -557,16 +595,26 @@
           throw new Error(`No process rows could be read.${detail}`);
         }
 
-        return { header, records, errors, blankLines, fileName };
+        return {
+          header,
+          fixedHeaders,
+          fixedOutputHeaders,
+          fixedDateIndexes,
+          processNameIndex: processNameIndex >= 0 ? processNameIndex : 0,
+          records,
+          errors,
+          blankLines,
+          fileName
+        };
       }
 
-      function parseDataLine(line, sourceLine, fileName) {
+      function parseDataLine(line, sourceLine, fileName, fixedColumnCount) {
         const fixed = [];
         let cursor = 0;
 
-        for (let fieldIndex = 0; fieldIndex < 7; fieldIndex += 1) {
+        for (let fieldIndex = 0; fieldIndex < fixedColumnCount; fieldIndex += 1) {
           const separator = line.indexOf('|', cursor);
-          if (separator < 0) throw new Error('Fewer than seven fixed process columns were found.');
+          if (separator < 0) throw new Error(`Fewer than ${fixedColumnCount} fixed process columns were found.`);
           fixed.push(line.slice(cursor, separator).trim());
           cursor = separator + 1;
         }
@@ -578,8 +626,8 @@
 
         const notesSegment = readJsonSegment(line, cursor + 1, 'Notes');
         cursor = skipSpaces(line, notesSegment.end);
-        const remainder = line.slice(cursor).trim();
-        if (remainder !== '' && remainder !== '|') throw new Error('Unexpected data was found after Notes.');
+        if (line[cursor] === '|') cursor = skipSpaces(line, cursor + 1);
+        if (cursor !== line.length) throw new Error('Unexpected data was found after Notes.');
 
         let keyItems;
         let notes;
@@ -634,6 +682,36 @@
         return index;
       }
 
+      function normaliseHeader(value) {
+        return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+      }
+
+      function createFixedOutputHeaders(fixedHeaders) {
+        const used = new Set();
+        return fixedHeaders.map((header, index) => {
+          const normalised = normaliseHeader(header);
+          const fallback = String(header || '')
+            .trim()
+            .split(/[^A-Za-z0-9]+/)
+            .filter(Boolean)
+            .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+            .join('');
+          const mapped = Object.prototype.hasOwnProperty.call(FIXED_HEADER_ALIASES, normalised)
+            ? FIXED_HEADER_ALIASES[normalised]
+            : '';
+          const base = mapped || fallback || `FixedColumn${index + 1}`;
+          const safeBase = /^\d/.test(base) ? `Column${base}` : base;
+          let candidate = safeBase;
+          let suffix = 2;
+          while (used.has(candidate.toLowerCase())) {
+            candidate = `${safeBase}_${suffix}`;
+            suffix += 1;
+          }
+          used.add(candidate.toLowerCase());
+          return candidate;
+        });
+      }
+
       function buildModel(parsed, catalogue) {
         const warnings = [];
         const fieldMap = new Map();
@@ -650,7 +728,7 @@
         let missingCodeItems = 0;
 
         parsed.records.forEach(record => {
-          processNames.add(record.fixed[0]);
+          processNames.add(record.fixed[parsed.processNameIndex]);
           record.values = new Map();
           record.presentCodes = new Set();
           const duplicateValues = new Map();
@@ -887,7 +965,7 @@
           'ProcessRowId',
           'SourceFile',
           'SourceRowNumber',
-          ...FIXED_OUTPUT_HEADERS,
+          ...model.fixedOutputHeaders,
           'FieldSet',
           'FieldsPresent',
           ...model.fields.map(field => field.columnName),
@@ -901,8 +979,9 @@
         const rows = records.map((record, index) => {
           const fixed = record.fixed.slice();
           if (isoDates) {
-            fixed[1] = normaliseSlashDate(fixed[1], 'dmy') || fixed[1];
-            fixed[5] = normaliseSlashDate(fixed[5], 'dmy') || fixed[5];
+            model.fixedDateIndexes.forEach(index => {
+              fixed[index] = normaliseSlashDate(fixed[index], 'dmy') || fixed[index];
+            });
           }
           const row = [
             `${fileStem}-${String(index + 1).padStart(6, '0')}`,
