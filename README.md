@@ -38,18 +38,6 @@ No installation or server-side processing is required.
 
 Users should still handle exported data in accordance with their organisation's information governance and data protection policies.
 
-**Running locally**
-
-The converter can also be used without GitHub Pages.
-
-Download index.html from this repository.
-
-Save it to your computer.
-
-Open the file using a modern web browser such as Microsoft Edge, Google Chrome or Firefox.
-
-No installation is required.
-
 **Requirements**
 
 The converter requires:
