@@ -1031,11 +1031,18 @@
       function flattenNotes(notes) {
         return notes.map(note => {
           if (note === null || note === undefined) return '';
-          if (typeof note !== 'object') return String(note);
+          if (typeof note !== 'object') return flattenNoteText(note);
           const entries = Object.entries(note);
           const preferred = entries.find(([key]) => /^(text|note|content|message|value|description)$/i.test(key));
-          return preferred && preferred[1] !== null && preferred[1] !== undefined ? String(preferred[1]) : JSON.stringify(note);
-        }).filter(Boolean).join('\n---\n');
+          const value = preferred && preferred[1] !== null && preferred[1] !== undefined
+            ? preferred[1]
+            : JSON.stringify(note);
+          return flattenNoteText(value);
+        }).filter(Boolean).join(' | ');
+      }
+
+      function flattenNoteText(value) {
+        return String(value).replace(/\r\n|\r|\n/g, ' ⏎ ').trim();
       }
 
       function downloadCsv() {
