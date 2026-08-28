@@ -329,7 +329,7 @@
         <div class="option-grid">
           <div class="check">
             <input id="standardiseDates" type="checkbox" checked>
-            <label for="standardiseDates">Standardise safely identified dates<small>Fixed process dates and unambiguous dynamic date fields become ISO format.</small></label>
+            <label for="standardiseDates">Convert safely identified dates to UK format<small>US dates such as 8/28/2026 12:32:14 AM become 28/08/2026 00:32:14. Ambiguous dates are left unchanged.</small></label>
           </div>
           <div class="check">
             <input id="includeRawJson" type="checkbox">
@@ -777,6 +777,10 @@
         const fields = Array.from(fieldMap.values()).sort((a, b) => a.order - b.order || a.code.localeCompare(b.code));
         assignColumnNames(fields);
         fields.forEach(field => { field.dateFormat = inferDateFormat(field); });
+        const fixedDateFormats = new Map(parsed.fixedDateIndexes.map(index => [
+          index,
+          inferDateFormatFromValues(parsed.records.map(record => record.fixed[index]))
+        ]));
 
         const processNameList = Array.from(processNames).filter(Boolean);
         if (processNameList.length > 1) warnings.push(`The export contains ${processNameList.length} process names. A separate export per process definition is recommended.`);
@@ -786,8 +790,10 @@
         }
         if (duplicateCodeRows) warnings.push(`${duplicateCodeRows.toLocaleString('en-GB')} process row(s) contain a repeated field code. Repeated values will be retained as a JSON array in one cell.`);
         if (missingCodeItems) warnings.push(`${missingCodeItems.toLocaleString('en-GB')} Key fields item(s) had no Code and could not become a CSV column.`);
-        const ambiguousDateFields = fields.filter(field => field.dateFormat === 'ambiguous');
-        if (ambiguousDateFields.length) warnings.push(`${ambiguousDateFields.length} date-like field(s) are ambiguous and will remain exactly as exported.`);
+        const uncertainDynamicDates = fields.filter(field => field.dateFormat === 'ambiguous' || field.dateFormat === 'conflict');
+        const uncertainFixedDates = Array.from(fixedDateFormats.values()).filter(format => format === 'ambiguous' || format === 'conflict');
+        const uncertainDateCount = uncertainDynamicDates.length + uncertainFixedDates.length;
+        if (uncertainDateCount) warnings.push(`${uncertainDateCount} date column(s) are ambiguous or contain conflicting date orders and will remain exactly as exported.`);
         if (parsed.blankLines) warnings.push(`${parsed.blankLines.toLocaleString('en-GB')} blank line(s) were ignored.`);
 
         const fieldSets = new Map();
@@ -805,6 +811,7 @@
           ...parsed,
           processNames: processNameList,
           fields,
+          fixedDateFormats,
           fieldSets: Array.from(fieldSets.values()).sort((a, b) => b.rows - a.rows || a.id.localeCompare(b.id)),
           warnings,
           duplicateCodeRows,
@@ -842,13 +849,17 @@
 
       function inferDateFormat(field) {
         if (!/date|time/i.test(`${field.code} ${field.name}`)) return null;
-        const candidates = field.sampleValues
+        return inferDateFormatFromValues(field.sampleValues);
+      }
+
+      function inferDateFormatFromValues(values) {
+        const candidates = values
           .filter(value => typeof value === 'string')
-          .map(value => value.match(/^\s*(\d{1,2})\/(\d{1,2})\/(\d{4})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?\s*$/))
+          .map(parseSlashDateParts)
           .filter(Boolean);
         if (!candidates.length) return null;
-        const firstOverTwelve = candidates.some(match => Number(match[1]) > 12);
-        const secondOverTwelve = candidates.some(match => Number(match[2]) > 12);
+        const firstOverTwelve = candidates.some(parts => parts.first > 12);
+        const secondOverTwelve = candidates.some(parts => parts.second > 12);
         if (firstOverTwelve && secondOverTwelve) return 'conflict';
         if (firstOverTwelve) return 'dmy';
         if (secondOverTwelve) return 'mdy';
@@ -901,7 +912,7 @@
         }
         const rows = model.fields.map(field => {
           const typeText = field.types.size ? Array.from(field.types.keys()).join(', ') : 'catalogue only';
-          const dateText = field.dateFormat === 'mdy' ? 'US date → ISO' : field.dateFormat === 'dmy' ? 'UK date → ISO' : field.dateFormat === 'ambiguous' ? 'ambiguous date' : field.dateFormat === 'conflict' ? 'conflicting date' : '';
+          const dateText = field.dateFormat === 'mdy' ? 'US date → UK' : field.dateFormat === 'dmy' ? 'UK date' : field.dateFormat === 'ambiguous' ? 'ambiguous date' : field.dateFormat === 'conflict' ? 'conflicting date' : '';
           return `<tr>
             <td><code>${escapeHtml(field.code)}</code></td>
             <td>${escapeHtml(field.name)}</td>
@@ -960,7 +971,7 @@
       function createOutput(includeAllRows = true) {
         const model = state.model;
         const rawJson = ui.includeRawJson.checked;
-        const isoDates = ui.standardiseDates.checked;
+        const ukDates = ui.standardiseDates.checked;
         const headers = [
           'ProcessRowId',
           'SourceFile',
@@ -978,9 +989,12 @@
         const fileStem = stripExtension(model.fileName).replace(/[^A-Za-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '') || 'export';
         const rows = records.map((record, index) => {
           const fixed = record.fixed.slice();
-          if (isoDates) {
+          if (ukDates) {
             model.fixedDateIndexes.forEach(index => {
-              fixed[index] = normaliseSlashDate(fixed[index], 'dmy') || fixed[index];
+              const format = model.fixedDateFormats.get(index);
+              if (format === 'mdy' || format === 'dmy') {
+                fixed[index] = normaliseSlashDate(fixed[index], format) || fixed[index];
+              }
             });
           }
           const row = [
@@ -993,7 +1007,7 @@
           ];
           model.fields.forEach(field => {
             let value = record.values.has(field.code) ? record.values.get(field.code) : '';
-            if (isoDates && (field.dateFormat === 'mdy' || field.dateFormat === 'dmy') && typeof value === 'string') {
+            if (ukDates && (field.dateFormat === 'mdy' || field.dateFormat === 'dmy') && typeof value === 'string') {
               value = normaliseSlashDate(value, field.dateFormat) || value;
             }
             row.push(flattenValue(value));
@@ -1005,21 +1019,39 @@
         return { headers, rows };
       }
 
-      function normaliseSlashDate(value, format) {
-        const match = String(value).match(/^\s*(\d{1,2})\/(\d{1,2})\/(\d{4})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?\s*$/);
+      function parseSlashDateParts(value) {
+        const match = String(value).match(/^\s*(\d{1,2})\/(\d{1,2})\/(\d{4})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?)?\s*$/i);
         if (!match) return null;
-        const first = Number(match[1]);
-        const second = Number(match[2]);
-        const year = Number(match[3]);
-        const day = format === 'dmy' ? first : second;
-        const month = format === 'dmy' ? second : first;
-        const hour = Number(match[4] || 0);
-        const minute = Number(match[5] || 0);
-        const secondValue = Number(match[6] || 0);
-        if (month < 1 || month > 12 || day < 1 || day > 31 || hour > 23 || minute > 59 || secondValue > 59) return null;
+        const parts = {
+          first: Number(match[1]),
+          second: Number(match[2]),
+          year: Number(match[3]),
+          hasTime: match[4] !== undefined,
+          hour: Number(match[4] || 0),
+          minute: Number(match[5] || 0),
+          secondValue: Number(match[6] || 0),
+          meridiem: String(match[7] || '').toUpperCase()
+        };
+        if (parts.first < 1 || parts.first > 31 || parts.second < 1 || parts.second > 31 || parts.minute > 59 || parts.secondValue > 59) return null;
+        if (parts.meridiem ? parts.hour < 1 || parts.hour > 12 : parts.hour > 23) return null;
+        return parts;
+      }
+
+      function normaliseSlashDate(value, format) {
+        const parts = parseSlashDateParts(value);
+        if (!parts) return null;
+        const day = format === 'dmy' ? parts.first : parts.second;
+        const month = format === 'dmy' ? parts.second : parts.first;
+        let hour = parts.hour;
+        if (parts.meridiem === 'AM' && hour === 12) hour = 0;
+        else if (parts.meridiem === 'PM' && hour < 12) hour += 12;
+        if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+        const { year, minute, secondValue } = parts;
         const test = new Date(Date.UTC(year, month - 1, day, hour, minute, secondValue));
         if (test.getUTCFullYear() !== year || test.getUTCMonth() !== month - 1 || test.getUTCDate() !== day) return null;
-        return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:${String(secondValue).padStart(2, '0')}`;
+        const date = `${String(day).padStart(2, '0')}/${String(month).padStart(2, '0')}/${year}`;
+        if (!parts.hasTime) return date;
+        return `${date} ${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:${String(secondValue).padStart(2, '0')}`;
       }
 
       function flattenValue(value) {
