@@ -329,7 +329,7 @@
         <div class="option-grid">
           <div class="check">
             <input id="standardiseDates" type="checkbox" checked>
-            <label for="standardiseDates">Convert safely identified dates to UK format<small>US dates such as 8/28/2026 12:32:14 AM become 28/08/2026 00:32:14. Ambiguous dates are left unchanged.</small></label>
+            <label for="standardiseDates">Standardise safely identified dates<small>Fixed process dates and unambiguous dynamic date fields become ISO format.</small></label>
           </div>
           <div class="check">
             <input id="includeRawJson" type="checkbox">
@@ -380,42 +380,6 @@
   <script>
     (() => {
       'use strict';
-
-      const FIXED_HEADER_ALIASES = {
-        'process': 'ProcessName',
-        'process name': 'ProcessName',
-        'step': 'CurrentStep',
-        'current step': 'CurrentStep',
-        'account': 'Account',
-        'category': 'Category',
-        'reference': 'Reference',
-        'started on': 'CurrentStepStartedOn',
-        'current step started on': 'CurrentStepStartedOn',
-        'last activity': 'CurrentStepLastActivity',
-        'current step last activity': 'CurrentStepLastActivity',
-        'target date': 'CurrentStepTargetDate',
-        'current step target date': 'CurrentStepTargetDate',
-        'allocated to': 'CurrentStepAllocatedTo',
-        'current step allocated to': 'CurrentStepAllocatedTo',
-        'process start date': 'ProcessStartedOn',
-        'process started on': 'ProcessStartedOn',
-        'process end date': 'ProcessCompletedOn',
-        'process completed on': 'ProcessCompletedOn',
-        'process completed by': 'ProcessCompletedBy'
-      };
-
-      const FIXED_DATE_HEADERS = new Set([
-        'started on',
-        'current step started on',
-        'last activity',
-        'current step last activity',
-        'target date',
-        'current step target date',
-        'process start date',
-        'process started on',
-        'process end date',
-        'process completed on'
-      ]);
 
       const state = {
         sourceFile: null,
@@ -555,23 +519,25 @@
         while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
         if (lines.length < 2) throw new Error('The selected file does not contain a header and process rows.');
 
-        const header = lines[0].split('|').map(value => value.trim());
-        while (header.length && header[header.length - 1] === '') header.pop();
-        const keyFieldsIndex = header.findIndex(value => normaliseHeader(value) === 'key fields');
-        const notesIndex = header.findIndex(value => normaliseHeader(value) === 'notes');
-        if (keyFieldsIndex < 1 || notesIndex !== keyFieldsIndex + 1 || notesIndex !== header.length - 1) {
-          throw new Error('The file header must end with the Open Process Key fields and Notes columns.');
+        const header = lines[0].split('|');
+        if (header[header.length - 1] === '') header.pop();
+        if (header.length < 9) {
+          throw new Error('The file does not have the expected Open Process pipe-delimited structure.');
         }
 
-        const fixedHeaders = header.slice(0, keyFieldsIndex);
-        const fixedOutputHeaders = createFixedOutputHeaders(fixedHeaders);
-        const fixedDateIndexes = fixedHeaders
-          .map((value, index) => FIXED_DATE_HEADERS.has(normaliseHeader(value)) ? index : -1)
-          .filter(index => index >= 0);
-        const processNameIndex = fixedHeaders.findIndex(value => {
-          const normalised = normaliseHeader(value);
-          return normalised === 'process' || normalised === 'process name';
-        });
+        const keyIndex = header.findIndex(name => /^key\s*fields$/i.test(name.trim()));
+        const notesIndex = header.findIndex(name => /^notes$/i.test(name.trim()));
+        if (keyIndex < 0 || notesIndex !== keyIndex + 1) {
+          throw new Error('The header must contain adjacent Key fields and Notes columns.');
+        }
+        const beforeHeaders = header.slice(0, keyIndex);
+        const afterHeaders = header.slice(notesIndex + 1);
+        const topLevelColumns = createTopLevelColumns([...beforeHeaders, ...afterHeaders]);
+        const processNameIndex = topLevelColumns.findIndex(column => /^process\s*name$/i.test(column.sourceHeader.trim()));
+        const structure = {
+          beforeCount: beforeHeaders.length,
+          afterCount: afterHeaders.length
+        };
 
         const records = [];
         const errors = [];
@@ -584,7 +550,7 @@
             continue;
           }
           try {
-            records.push(parseDataLine(line, index + 1, fileName, fixedHeaders.length));
+            records.push(parseDataLine(line, index + 1, fileName, structure));
           } catch (error) {
             errors.push({ line: index + 1, message: error instanceof Error ? error.message : String(error) });
           }
@@ -595,27 +561,17 @@
           throw new Error(`No process rows could be read.${detail}`);
         }
 
-        return {
-          header,
-          fixedHeaders,
-          fixedOutputHeaders,
-          fixedDateIndexes,
-          processNameIndex: processNameIndex >= 0 ? processNameIndex : 0,
-          records,
-          errors,
-          blankLines,
-          fileName
-        };
+        return { header, topLevelColumns, processNameIndex, records, errors, blankLines, fileName };
       }
 
-      function parseDataLine(line, sourceLine, fileName, fixedColumnCount) {
-        const fixed = [];
+      function parseDataLine(line, sourceLine, fileName, structure) {
+        const beforeValues = [];
         let cursor = 0;
 
-        for (let fieldIndex = 0; fieldIndex < fixedColumnCount; fieldIndex += 1) {
+        for (let fieldIndex = 0; fieldIndex < structure.beforeCount; fieldIndex += 1) {
           const separator = line.indexOf('|', cursor);
-          if (separator < 0) throw new Error(`Fewer than ${fixedColumnCount} fixed process columns were found.`);
-          fixed.push(line.slice(cursor, separator).trim());
+          if (separator < 0) throw new Error('Fewer top-level process columns were found than the header defines.');
+          beforeValues.push(line.slice(cursor, separator).trim());
           cursor = separator + 1;
         }
 
@@ -626,8 +582,28 @@
 
         const notesSegment = readJsonSegment(line, cursor + 1, 'Notes');
         cursor = skipSpaces(line, notesSegment.end);
-        if (line[cursor] === '|') cursor = skipSpaces(line, cursor + 1);
-        if (cursor !== line.length) throw new Error('Unexpected data was found after Notes.');
+        const afterValues = [];
+        if (structure.afterCount > 0) {
+          if (line[cursor] !== '|') throw new Error('The separator after Notes is missing.');
+          cursor += 1;
+          for (let fieldIndex = 0; fieldIndex < structure.afterCount; fieldIndex += 1) {
+            const separator = line.indexOf('|', cursor);
+            if (separator < 0) {
+              if (fieldIndex !== structure.afterCount - 1) {
+                throw new Error('Fewer trailing process columns were found than the header defines.');
+              }
+              afterValues.push(line.slice(cursor).trim());
+              cursor = line.length;
+            } else {
+              afterValues.push(line.slice(cursor, separator).trim());
+              cursor = separator + 1;
+            }
+          }
+          if (line.slice(cursor).trim() !== '') throw new Error('Unexpected data was found after the final process column.');
+        } else {
+          const remainder = line.slice(cursor).trim();
+          if (remainder !== '' && remainder !== '|') throw new Error('Unexpected data was found after Notes.');
+        }
 
         let keyItems;
         let notes;
@@ -641,12 +617,40 @@
         return {
           fileName,
           sourceLine,
-          fixed,
+          topLevelValues: [...beforeValues, ...afterValues],
           keyItems,
           notes,
           keyRaw: keySegment.raw,
           notesRaw: notesSegment.raw
         };
+      }
+
+      function createTopLevelColumns(headers) {
+        const reserved = new Set(['processrowid', 'sourcefile', 'sourcerownumber', 'fieldset', 'fieldspresent', 'notescount', 'notestext', 'keyfieldsjson', 'notesjson']);
+        return headers.map(sourceHeader => {
+          const baseName = normaliseOutputHeader(sourceHeader) || 'ProcessField';
+          let outputName = baseName;
+          let suffix = 2;
+          while (reserved.has(outputName.toLowerCase())) {
+            outputName = `${baseName}_${suffix}`;
+            suffix += 1;
+          }
+          reserved.add(outputName.toLowerCase());
+          return { sourceHeader, outputName };
+        });
+      }
+
+      function normaliseOutputHeader(header) {
+        return String(header)
+          .trim()
+          .split(/[^A-Za-z0-9]+/)
+          .filter(Boolean)
+          .map(word => {
+            const lower = word.toLowerCase();
+            if (lower === 'id') return 'Id';
+            return lower.charAt(0).toUpperCase() + lower.slice(1);
+          })
+          .join('');
       }
 
       function readJsonSegment(text, start, label) {
@@ -682,36 +686,6 @@
         return index;
       }
 
-      function normaliseHeader(value) {
-        return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
-      }
-
-      function createFixedOutputHeaders(fixedHeaders) {
-        const used = new Set();
-        return fixedHeaders.map((header, index) => {
-          const normalised = normaliseHeader(header);
-          const fallback = String(header || '')
-            .trim()
-            .split(/[^A-Za-z0-9]+/)
-            .filter(Boolean)
-            .map(part => part.charAt(0).toUpperCase() + part.slice(1))
-            .join('');
-          const mapped = Object.prototype.hasOwnProperty.call(FIXED_HEADER_ALIASES, normalised)
-            ? FIXED_HEADER_ALIASES[normalised]
-            : '';
-          const base = mapped || fallback || `FixedColumn${index + 1}`;
-          const safeBase = /^\d/.test(base) ? `Column${base}` : base;
-          let candidate = safeBase;
-          let suffix = 2;
-          while (used.has(candidate.toLowerCase())) {
-            candidate = `${safeBase}_${suffix}`;
-            suffix += 1;
-          }
-          used.add(candidate.toLowerCase());
-          return candidate;
-        });
-      }
-
       function buildModel(parsed, catalogue) {
         const warnings = [];
         const fieldMap = new Map();
@@ -728,7 +702,7 @@
         let missingCodeItems = 0;
 
         parsed.records.forEach(record => {
-          processNames.add(record.fixed[parsed.processNameIndex]);
+          if (parsed.processNameIndex >= 0) processNames.add(record.topLevelValues[parsed.processNameIndex]);
           record.values = new Map();
           record.presentCodes = new Set();
           const duplicateValues = new Map();
@@ -777,23 +751,31 @@
         const fields = Array.from(fieldMap.values()).sort((a, b) => a.order - b.order || a.code.localeCompare(b.code));
         assignColumnNames(fields);
         fields.forEach(field => { field.dateFormat = inferDateFormat(field); });
-        const fixedDateFormats = new Map(parsed.fixedDateIndexes.map(index => [
-          index,
-          inferDateFormatFromValues(parsed.records.map(record => record.fixed[index]))
-        ]));
 
         const processNameList = Array.from(processNames).filter(Boolean);
         if (processNameList.length > 1) warnings.push(`The export contains ${processNameList.length} process names. A separate export per process definition is recommended.`);
+        const finalStepIndex = parsed.topLevelColumns.findIndex(column => /^process\s*completed\s*final\s*step$/i.test(column.sourceHeader.trim()));
+        const completedOnIndex = parsed.topLevelColumns.findIndex(column => /^process\s*completed\s*on$/i.test(column.sourceHeader.trim()));
+        const completedByIndex = parsed.topLevelColumns.findIndex(column => /^process\s*completed\s*by$/i.test(column.sourceHeader.trim()));
+        if (finalStepIndex >= 0 && completedOnIndex >= 0 && completedByIndex >= 0) {
+          const suspiciousRows = parsed.records.filter(record => {
+            const finalStep = record.topLevelValues[finalStepIndex];
+            const completedOn = record.topLevelValues[completedOnIndex];
+            const completedBy = record.topLevelValues[completedByIndex];
+            return Boolean(normaliseSlashDate(finalStep, 'dmy')) && !normaliseSlashDate(completedOn, 'dmy') && Boolean(completedOn) && !completedBy;
+          }).length;
+          if (suspiciousRows) {
+            warnings.push(`${suspiciousRows.toLocaleString('en-GB')} row(s) appear to have completion values offset by the new header: the date is under Process completed final step, the user is under Process completed on, and Process completed by is blank. Values are preserved exactly as exported.`);
+          }
+        }
         if (catalogue && Array.isArray(catalogue.processNames) && catalogue.processNames.length && processNameList.length) {
           const mismatch = processNameList.some(name => !catalogue.processNames.includes(name));
           if (mismatch) warnings.push('The loaded field catalogue appears to belong to a different process definition. Check the generated columns before downloading.');
         }
         if (duplicateCodeRows) warnings.push(`${duplicateCodeRows.toLocaleString('en-GB')} process row(s) contain a repeated field code. Repeated values will be retained as a JSON array in one cell.`);
         if (missingCodeItems) warnings.push(`${missingCodeItems.toLocaleString('en-GB')} Key fields item(s) had no Code and could not become a CSV column.`);
-        const uncertainDynamicDates = fields.filter(field => field.dateFormat === 'ambiguous' || field.dateFormat === 'conflict');
-        const uncertainFixedDates = Array.from(fixedDateFormats.values()).filter(format => format === 'ambiguous' || format === 'conflict');
-        const uncertainDateCount = uncertainDynamicDates.length + uncertainFixedDates.length;
-        if (uncertainDateCount) warnings.push(`${uncertainDateCount} date column(s) are ambiguous or contain conflicting date orders and will remain exactly as exported.`);
+        const ambiguousDateFields = fields.filter(field => field.dateFormat === 'ambiguous');
+        if (ambiguousDateFields.length) warnings.push(`${ambiguousDateFields.length} date-like field(s) are ambiguous and will remain exactly as exported.`);
         if (parsed.blankLines) warnings.push(`${parsed.blankLines.toLocaleString('en-GB')} blank line(s) were ignored.`);
 
         const fieldSets = new Map();
@@ -811,7 +793,6 @@
           ...parsed,
           processNames: processNameList,
           fields,
-          fixedDateFormats,
           fieldSets: Array.from(fieldSets.values()).sort((a, b) => b.rows - a.rows || a.id.localeCompare(b.id)),
           warnings,
           duplicateCodeRows,
@@ -849,17 +830,13 @@
 
       function inferDateFormat(field) {
         if (!/date|time/i.test(`${field.code} ${field.name}`)) return null;
-        return inferDateFormatFromValues(field.sampleValues);
-      }
-
-      function inferDateFormatFromValues(values) {
-        const candidates = values
+        const candidates = field.sampleValues
           .filter(value => typeof value === 'string')
-          .map(parseSlashDateParts)
+          .map(value => value.match(/^\s*(\d{1,2})\/(\d{1,2})\/(\d{4})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?\s*$/))
           .filter(Boolean);
         if (!candidates.length) return null;
-        const firstOverTwelve = candidates.some(parts => parts.first > 12);
-        const secondOverTwelve = candidates.some(parts => parts.second > 12);
+        const firstOverTwelve = candidates.some(match => Number(match[1]) > 12);
+        const secondOverTwelve = candidates.some(match => Number(match[2]) > 12);
         if (firstOverTwelve && secondOverTwelve) return 'conflict';
         if (firstOverTwelve) return 'dmy';
         if (secondOverTwelve) return 'mdy';
@@ -912,7 +889,7 @@
         }
         const rows = model.fields.map(field => {
           const typeText = field.types.size ? Array.from(field.types.keys()).join(', ') : 'catalogue only';
-          const dateText = field.dateFormat === 'mdy' ? 'US date → UK' : field.dateFormat === 'dmy' ? 'UK date' : field.dateFormat === 'ambiguous' ? 'ambiguous date' : field.dateFormat === 'conflict' ? 'conflicting date' : '';
+          const dateText = field.dateFormat === 'mdy' ? 'US date → ISO' : field.dateFormat === 'dmy' ? 'UK date → ISO' : field.dateFormat === 'ambiguous' ? 'ambiguous date' : field.dateFormat === 'conflict' ? 'conflicting date' : '';
           return `<tr>
             <td><code>${escapeHtml(field.code)}</code></td>
             <td>${escapeHtml(field.name)}</td>
@@ -953,9 +930,12 @@
         const preferredHeaders = [
           'ProcessRowId',
           'ProcessStartedOn',
+          'ProcessCompletedFinalStep',
           'ProcessCompletedOn',
+          'ProcessId',
+          'ExternalReference',
           'FieldSet',
-          ...model.fields.slice(0, 6).map(field => field.columnName),
+          ...model.fields.slice(0, 5).map(field => field.columnName),
           'NotesCount'
         ];
         const previewIndexes = preferredHeaders
@@ -971,12 +951,12 @@
       function createOutput(includeAllRows = true) {
         const model = state.model;
         const rawJson = ui.includeRawJson.checked;
-        const ukDates = ui.standardiseDates.checked;
+        const isoDates = ui.standardiseDates.checked;
         const headers = [
           'ProcessRowId',
           'SourceFile',
           'SourceRowNumber',
-          ...model.fixedOutputHeaders,
+          ...model.topLevelColumns.map(column => column.outputName),
           'FieldSet',
           'FieldsPresent',
           ...model.fields.map(field => field.columnName),
@@ -988,12 +968,11 @@
         const records = includeAllRows ? model.records : model.records.slice(0, 6);
         const fileStem = stripExtension(model.fileName).replace(/[^A-Za-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '') || 'export';
         const rows = records.map((record, index) => {
-          const fixed = record.fixed.slice();
-          if (ukDates) {
-            model.fixedDateIndexes.forEach(index => {
-              const format = model.fixedDateFormats.get(index);
-              if (format === 'mdy' || format === 'dmy') {
-                fixed[index] = normaliseSlashDate(fixed[index], format) || fixed[index];
+          const topLevelValues = record.topLevelValues.slice();
+          if (isoDates) {
+            model.topLevelColumns.forEach((column, columnIndex) => {
+              if (/date|started|completed/i.test(column.sourceHeader)) {
+                topLevelValues[columnIndex] = normaliseSlashDate(topLevelValues[columnIndex], 'dmy') || topLevelValues[columnIndex];
               }
             });
           }
@@ -1001,13 +980,13 @@
             `${fileStem}-${String(index + 1).padStart(6, '0')}`,
             model.fileName,
             record.sourceLine,
-            ...fixed,
+            ...topLevelValues,
             record.fieldSet,
             record.fieldsPresent
           ];
           model.fields.forEach(field => {
             let value = record.values.has(field.code) ? record.values.get(field.code) : '';
-            if (ukDates && (field.dateFormat === 'mdy' || field.dateFormat === 'dmy') && typeof value === 'string') {
+            if (isoDates && (field.dateFormat === 'mdy' || field.dateFormat === 'dmy') && typeof value === 'string') {
               value = normaliseSlashDate(value, field.dateFormat) || value;
             }
             row.push(flattenValue(value));
@@ -1019,39 +998,21 @@
         return { headers, rows };
       }
 
-      function parseSlashDateParts(value) {
-        const match = String(value).match(/^\s*(\d{1,2})\/(\d{1,2})\/(\d{4})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?)?\s*$/i);
-        if (!match) return null;
-        const parts = {
-          first: Number(match[1]),
-          second: Number(match[2]),
-          year: Number(match[3]),
-          hasTime: match[4] !== undefined,
-          hour: Number(match[4] || 0),
-          minute: Number(match[5] || 0),
-          secondValue: Number(match[6] || 0),
-          meridiem: String(match[7] || '').toUpperCase()
-        };
-        if (parts.first < 1 || parts.first > 31 || parts.second < 1 || parts.second > 31 || parts.minute > 59 || parts.secondValue > 59) return null;
-        if (parts.meridiem ? parts.hour < 1 || parts.hour > 12 : parts.hour > 23) return null;
-        return parts;
-      }
-
       function normaliseSlashDate(value, format) {
-        const parts = parseSlashDateParts(value);
-        if (!parts) return null;
-        const day = format === 'dmy' ? parts.first : parts.second;
-        const month = format === 'dmy' ? parts.second : parts.first;
-        let hour = parts.hour;
-        if (parts.meridiem === 'AM' && hour === 12) hour = 0;
-        else if (parts.meridiem === 'PM' && hour < 12) hour += 12;
-        if (month < 1 || month > 12 || day < 1 || day > 31) return null;
-        const { year, minute, secondValue } = parts;
+        const match = String(value).match(/^\s*(\d{1,2})\/(\d{1,2})\/(\d{4})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?\s*$/);
+        if (!match) return null;
+        const first = Number(match[1]);
+        const second = Number(match[2]);
+        const year = Number(match[3]);
+        const day = format === 'dmy' ? first : second;
+        const month = format === 'dmy' ? second : first;
+        const hour = Number(match[4] || 0);
+        const minute = Number(match[5] || 0);
+        const secondValue = Number(match[6] || 0);
+        if (month < 1 || month > 12 || day < 1 || day > 31 || hour > 23 || minute > 59 || secondValue > 59) return null;
         const test = new Date(Date.UTC(year, month - 1, day, hour, minute, secondValue));
         if (test.getUTCFullYear() !== year || test.getUTCMonth() !== month - 1 || test.getUTCDate() !== day) return null;
-        const date = `${String(day).padStart(2, '0')}/${String(month).padStart(2, '0')}/${year}`;
-        if (!parts.hasTime) return date;
-        return `${date} ${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:${String(secondValue).padStart(2, '0')}`;
+        return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:${String(secondValue).padStart(2, '0')}`;
       }
 
       function flattenValue(value) {
@@ -1063,18 +1024,16 @@
       function flattenNotes(notes) {
         return notes.map(note => {
           if (note === null || note === undefined) return '';
-          if (typeof note !== 'object') return flattenNoteText(note);
+          if (typeof note !== 'object') return String(note);
           const entries = Object.entries(note);
           const preferred = entries.find(([key]) => /^(text|note|content|message|value|description)$/i.test(key));
-          const value = preferred && preferred[1] !== null && preferred[1] !== undefined
-            ? preferred[1]
-            : JSON.stringify(note);
-          return flattenNoteText(value);
-        }).filter(Boolean).join(' | ');
-      }
-
-      function flattenNoteText(value) {
-        return String(value).replace(/\r\n|\r|\n/g, ' ⏎ ').trim();
+          if (!preferred || preferred[1] === null || preferred[1] === undefined) return JSON.stringify(note);
+          const metadata = entries
+            .filter(([key, value]) => key !== preferred[0] && value !== null && value !== undefined && typeof value !== 'object' && String(value) !== '')
+            .map(([key, value]) => `${key}: ${value}`);
+          const prefix = metadata.length ? `[${metadata.join(' · ')}] ` : '';
+          return `${prefix}${preferred[1]}`;
+        }).filter(Boolean).join('\n---\n');
       }
 
       function downloadCsv() {
